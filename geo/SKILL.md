@@ -36,6 +36,10 @@ allowed-tools: Read, Grep, Glob, Bash, WebFetch, Write
 | `/geo report <url>` | Generate client-ready GEO deliverable |
 | `/geo report-pdf <url>` | Generate professional PDF report with charts and scores |
 | `/geo quick <url>` | 60-second GEO visibility snapshot |
+| `/geo gsc <site_url>` | Pull Google Search Console performance data |
+| `/geo ga4 <property_id>` | Pull Google Analytics 4 traffic & engagement data |
+| `/geo ai-traffic <property_id>` | Identify AI referral traffic (ChatGPT, Perplexity, etc.) |
+| `/geo connect-status` | Check Google API credentials setup status |
 
 ---
 
@@ -126,6 +130,7 @@ Adjust recommendations based on detected type. Local businesses need LocalBusine
 | 8 | geo-technical | `skills/geo-technical/` | Technical SEO foundations |
 | 9 | geo-content | `skills/geo-content/` | Content quality and E-E-A-T |
 | 10 | geo-report | `skills/geo-report/` | Client-ready deliverable generation |
+| 11 | geo-gsc-ga4 | `skills/geo-gsc-ga4/` | GSC & GA4 real performance data integration |
 
 ---
 
