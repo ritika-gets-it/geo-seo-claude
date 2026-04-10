@@ -1,6 +1,8 @@
 """
-Page 5: GEO/AEO Scores
-Live crawler access checks, structured data detection, brand presence, and actionable insights.
+Page 5: AEO Impact Analysis
+Measures how AEO work (schema, structured data, content optimization) is
+affecting search performance and AI visibility. Cross-references schema
+presence with actual GSC/GA4 data to show measurable impact.
 """
 
 import streamlit as st
@@ -10,453 +12,465 @@ import pandas as pd
 import sys
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
 
+from data_loader import (
+    load_gsc_top_pages,
+    load_gsc_top_queries,
+    load_ga4_ai_traffic,
+    load_ga4_top_pages,
+    load_ga4_traffic_overview,
+    gsc_rows_to_df,
+    ga4_rows_to_df,
+)
 from config import COLORS, BRAND_NAME, SITE_URL
 
 
 def _schema_description(schema_type):
     """Return human-readable description for common schema types."""
     descriptions = {
-        "Organization": "Company identity — name, logo, social profiles. Helps AI cite us correctly.",
-        "WebSite": "Site-level info — helps AI understand our site's purpose and scope.",
-        "WebPage": "Individual page metadata — helps AI categorize content.",
-        "Article": "Blog/news content with author and publication info — boosts citation credibility.",
-        "FAQPage": "Question-answer pairs — AI engines pull these directly into answers.",
-        "BreadcrumbList": "Site navigation hierarchy — helps AI understand content relationships.",
-        "Product": "Product details — useful for commerce-related AI queries.",
-        "LocalBusiness": "Physical location info — critical for local AI search results.",
-        "Person": "Author/team info — strengthens E-E-A-T signals for AI.",
-        "SoftwareApplication": "App/tool details — helps AI recommend our products.",
-        "HowTo": "Step-by-step instructions — AI loves to cite these directly.",
-        "VideoObject": "Video content metadata — YouTube correlation with AI citations is 0.737.",
+        "Organization": "Company identity — helps AI cite us correctly",
+        "WebSite": "Site scope — helps AI understand what we do",
+        "WebPage": "Page metadata — helps AI categorize content",
+        "Article": "News/blog with author info — boosts citation credibility",
+        "FAQPage": "Q&A pairs — AI pulls these directly into answers",
+        "BreadcrumbList": "Site hierarchy — helps AI understand structure",
+        "Product": "Product details — for commerce AI queries",
+        "LocalBusiness": "Location info — for local AI results",
+        "Person": "Author/team — strengthens E-E-A-T signals",
+        "SoftwareApplication": "App details — helps AI recommend products",
+        "HowTo": "Step-by-step — AI loves to cite these",
+        "VideoObject": "Video metadata — YouTube has 0.737 AI citation correlation",
     }
-    return descriptions.get(schema_type, f"Tells AI this content is a {schema_type}.")
+    return descriptions.get(schema_type, f"{schema_type} markup")
 
 
-st.set_page_config(page_title="GEO/AEO Scores", page_icon="🎯", layout="wide")
-st.markdown("# 🎯 GEO/AEO Readiness")
-st.markdown("Is animocabrands.com set up for AI search engines to find, crawl, and cite our content?")
+st.set_page_config(page_title="AEO Impact", page_icon="🎯", layout="wide")
+st.markdown("# 🎯 AEO Impact Analysis")
+st.markdown("Is our schema markup and content optimization actually improving performance?")
 st.markdown("---")
 
-# ─── Live Checks ──────────────────────────────────────────
+# Date range
+col_d1, col_d2, _ = st.columns([1, 1, 2])
+with col_d1:
+    start_date = st.date_input("Start date", datetime.now() - timedelta(days=28), key="aeo_start")
+with col_d2:
+    end_date = st.date_input("End date", datetime.now() - timedelta(days=1), key="aeo_end")
 
-@st.cache_data(ttl=86400)
-def check_robots_for_ai_crawlers(domain):
-    """Fetch robots.txt and check AI crawler access."""
-    import requests
-    results = {}
-    crawlers = {
-        "GPTBot": {"owner": "OpenAI (ChatGPT)", "critical": True},
-        "ClaudeBot": {"owner": "Anthropic (Claude)", "critical": True},
-        "PerplexityBot": {"owner": "Perplexity AI", "critical": True},
-        "Google-Extended": {"owner": "Google (Gemini/AI Overviews)", "critical": True},
-        "Googlebot": {"owner": "Google Search", "critical": True},
-        "Bingbot": {"owner": "Microsoft (Bing/Copilot)", "critical": False},
-        "Bytespider": {"owner": "ByteDance (TikTok)", "critical": False},
-    }
-    try:
-        resp = requests.get(f"https://{domain}/robots.txt", timeout=10)
-        if resp.status_code == 200:
-            robots_text = resp.text.lower()
-            for bot, info in crawlers.items():
-                bot_lower = bot.lower()
-                # Check if explicitly disallowed
-                blocked = False
-                in_section = False
-                for line in robots_text.split("\n"):
-                    line = line.strip()
-                    if line.startswith("user-agent:"):
-                        agent = line.split(":", 1)[1].strip()
-                        in_section = agent == "*" or bot_lower in agent
-                    elif in_section and line.startswith("disallow:"):
-                        path = line.split(":", 1)[1].strip()
-                        if path == "/" or path == "/*":
-                            blocked = True
-                            break
-
-                results[bot] = {
-                    "owner": info["owner"],
-                    "critical": info["critical"],
-                    "status": "Blocked" if blocked else "Allowed",
-                    "impact": "AI cannot crawl or cite our content" if blocked else "AI can access our content",
-                }
-            return {"success": True, "crawlers": results, "robots_url": f"https://{domain}/robots.txt"}
-        else:
-            return {"success": False, "error": f"robots.txt returned status {resp.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@st.cache_data(ttl=86400)
-def check_llms_txt(domain):
-    """Check if llms.txt exists and what it contains."""
-    import requests
-    try:
-        resp = requests.get(f"https://{domain}/llms.txt", timeout=10)
-        if resp.status_code == 200:
-            content = resp.text
-            lines = [l for l in content.split("\n") if l.strip()]
-            return {
-                "exists": True,
-                "url": f"https://{domain}/llms.txt",
-                "lines": len(lines),
-                "preview": content[:1000],
-            }
-        return {"exists": False, "status": resp.status_code}
-    except Exception as e:
-        return {"exists": False, "error": str(e)}
-
-
-@st.cache_data(ttl=86400)
-def check_structured_data(domain):
-    """Check homepage for JSON-LD structured data."""
-    import requests
-    from bs4 import BeautifulSoup
-    try:
-        resp = requests.get(f"https://{domain}", timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        })
-        soup = BeautifulSoup(resp.text, "html.parser")
-        scripts = soup.find_all("script", {"type": "application/ld+json"})
-        schemas = []
-        for s in scripts:
-            try:
-                data = json.loads(s.string)
-                if isinstance(data, list):
-                    for item in data:
-                        schemas.append(item.get("@type", "Unknown"))
-                else:
-                    schemas.append(data.get("@type", "Unknown"))
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return {
-            "found": len(schemas) > 0,
-            "count": len(schemas),
-            "types": schemas,
-        }
-    except Exception as e:
-        return {"found": False, "error": str(e)}
-
-
-@st.cache_data(ttl=86400)
-def check_page_basics(domain):
-    """Check basic SEO elements on homepage."""
-    import requests
-    from bs4 import BeautifulSoup
-    try:
-        resp = requests.get(f"https://{domain}", timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        })
-        soup = BeautifulSoup(resp.text, "html.parser")
-        title = soup.find("title")
-        desc = soup.find("meta", attrs={"name": "description"})
-        canonical = soup.find("link", attrs={"rel": "canonical"})
-        h1s = soup.find_all("h1")
-        og_title = soup.find("meta", attrs={"property": "og:title"})
-        og_desc = soup.find("meta", attrs={"property": "og:description"})
-        return {
-            "title": title.text.strip() if title else None,
-            "description": desc["content"] if desc and desc.get("content") else None,
-            "canonical": canonical["href"] if canonical and canonical.get("href") else None,
-            "h1_count": len(h1s),
-            "h1_text": h1s[0].text.strip() if h1s else None,
-            "has_og": bool(og_title),
-            "has_og_desc": bool(og_desc),
-            "ssr": len(soup.find_all("div")) > 10,
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
+start_str = start_date.strftime("%Y-%m-%d")
+end_str = end_date.strftime("%Y-%m-%d")
 domain = "animocabrands.com"
 
-# Run all checks
-with st.spinner("Running live AEO checks on animocabrands.com..."):
-    robots_result = check_robots_for_ai_crawlers(domain)
-    llms_result = check_llms_txt(domain)
-    schema_result = check_structured_data(domain)
-    page_result = check_page_basics(domain)
 
-# ─── Overall Score ─────────────────────────────────────────
+# ─── Scan Pages for Schema ────────────────────────────────
 
-# Calculate a quick AEO readiness score
-score = 0
-max_score = 0
-score_details = []
+@st.cache_data(ttl=86400)
+def scan_pages_for_schema(domain, page_urls):
+    """Check which pages have JSON-LD structured data."""
+    import requests
+    from bs4 import BeautifulSoup
 
-# Crawler access (30 points)
-if robots_result.get("success"):
-    crawlers = robots_result.get("crawlers", {})
-    critical_crawlers = {k: v for k, v in crawlers.items() if v.get("critical")}
-    allowed = sum(1 for v in critical_crawlers.values() if v["status"] == "Allowed")
-    total_critical = len(critical_crawlers)
-    crawler_score = round(allowed / total_critical * 30) if total_critical > 0 else 0
-    score += crawler_score
-    max_score += 30
-    score_details.append(f"Crawler access: {crawler_score}/30 ({allowed}/{total_critical} critical crawlers allowed)")
+    results = {}
+    for url in page_urls:
+        if not url.startswith("http"):
+            url = f"https://{domain}{url}"
+        try:
+            resp = requests.get(url, timeout=10, headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+            })
+            soup = BeautifulSoup(resp.text, "html.parser")
+            scripts = soup.find_all("script", {"type": "application/ld+json"})
+            schemas = []
+            for s in scripts:
+                try:
+                    data = json.loads(s.string)
+                    if isinstance(data, list):
+                        for item in data:
+                            schemas.append(item.get("@type", "Unknown"))
+                    elif isinstance(data, dict):
+                        if "@graph" in data:
+                            for item in data["@graph"]:
+                                schemas.append(item.get("@type", "Unknown"))
+                        else:
+                            schemas.append(data.get("@type", "Unknown"))
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
-# llms.txt (10 points)
-if llms_result.get("exists"):
-    score += 10
-    score_details.append("llms.txt: 10/10 (found)")
-else:
-    score_details.append("llms.txt: 0/10 (not found)")
-max_score += 10
+            # Count content signals
+            h1s = soup.find_all("h1")
+            faqs = soup.find_all(["details", "summary"])
+            tables = soup.find_all("table")
+            lists = soup.find_all(["ul", "ol"])
+            word_count = len(soup.get_text().split())
 
-# Structured data (20 points)
-if schema_result.get("found"):
-    schema_score = min(20, schema_result["count"] * 5)
-    score += schema_score
-    score_details.append(f"Structured data: {schema_score}/20 ({schema_result['count']} schemas found)")
-else:
-    score_details.append("Structured data: 0/20 (none found)")
-max_score += 20
+            results[url] = {
+                "has_schema": len(schemas) > 0,
+                "schema_count": len(schemas),
+                "schema_types": schemas,
+                "has_faq_markup": "FAQPage" in schemas,
+                "has_article_markup": "Article" in schemas or "NewsArticle" in schemas,
+                "has_org_markup": "Organization" in schemas,
+                "word_count": word_count,
+                "has_tables": len(tables) > 0,
+                "has_lists": len(lists) > 0,
+                "content_signals": len(tables) + len(lists) + len(faqs),
+            }
+        except Exception:
+            results[url] = {"has_schema": False, "schema_count": 0, "schema_types": [], "error": True}
 
-# Page basics (20 points)
-if not page_result.get("error"):
-    basics_score = 0
-    if page_result.get("title"): basics_score += 5
-    if page_result.get("description"): basics_score += 5
-    if page_result.get("has_og"): basics_score += 5
-    if page_result.get("ssr"): basics_score += 5
-    score += basics_score
-    score_details.append(f"Page fundamentals: {basics_score}/20")
-max_score += 20
+    return results
 
-total_pct = round(score / max_score * 100) if max_score > 0 else 0
 
-# Score gauge
-st.markdown("### AEO Readiness Score")
+# ─── Load Performance Data ────────────────────────────────
 
-col_score, col_details = st.columns([1, 2])
+with st.spinner("Loading performance data and scanning pages for schema..."):
+    gsc_pages = load_gsc_top_pages(start_str, end_str, limit=25)
+    gsc_queries = load_gsc_top_queries(start_str, end_str, limit=50)
+    ai_traffic = load_ga4_ai_traffic(start_str, end_str)
+    ga4_pages = load_ga4_top_pages(start_str, end_str, limit=25)
+    ga4_overview = load_ga4_traffic_overview(start_str, end_str)
 
-with col_score:
-    color = COLORS["success"] if total_pct >= 70 else COLORS["warning"] if total_pct >= 40 else COLORS["danger"]
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=total_pct,
-        title={"text": "AEO Readiness"},
-        gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": color},
-            "steps": [
-                {"range": [0, 40], "color": "#ffcccc"},
-                {"range": [40, 70], "color": "#fff3cd"},
-                {"range": [70, 100], "color": "#d4edda"},
-            ],
-        },
-        number={"suffix": "%"},
-    ))
-    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=0))
-    st.plotly_chart(fig, use_container_width=True)
+pages_df = gsc_rows_to_df(gsc_pages)
+queries_df = gsc_rows_to_df(gsc_queries)
+ga4_pages_df = ga4_rows_to_df(ga4_pages)
+overview_df = ga4_rows_to_df(ga4_overview)
 
-with col_details:
-    if total_pct >= 70:
-        st.success(f"**Score: {total_pct}%** — Strong AEO readiness. Focus on content optimization and brand presence to maximize AI citations.")
-    elif total_pct >= 40:
-        st.warning(f"**Score: {total_pct}%** — Moderate readiness. Key gaps need attention before AI engines will reliably cite us.")
-    else:
-        st.error(f"**Score: {total_pct}%** — Significant gaps. AI engines likely cannot access or properly understand our content.")
+# Get page URLs to scan
+page_urls = []
+if not pages_df.empty and "page" in pages_df.columns:
+    page_urls = pages_df["page"].tolist()[:15]  # Scan top 15 pages
 
-    st.markdown("**Score Breakdown:**")
-    for detail in score_details:
-        st.markdown(f"- {detail}")
+# Scan for schema
+schema_data = {}
+if page_urls:
+    with st.spinner("Scanning top pages for schema markup..."):
+        schema_data = scan_pages_for_schema(domain, page_urls)
+
+# ─── Schema Impact Summary ────────────────────────────────
+
+st.markdown("### How Schema Markup Affects Performance")
+
+if schema_data and not pages_df.empty:
+    # Merge schema data with performance data
+    pages_df["has_schema"] = pages_df["page"].apply(
+        lambda p: schema_data.get(p, {}).get("has_schema", False)
+    )
+    pages_df["schema_count"] = pages_df["page"].apply(
+        lambda p: schema_data.get(p, {}).get("schema_count", 0)
+    )
+    pages_df["schema_types"] = pages_df["page"].apply(
+        lambda p: ", ".join(schema_data.get(p, {}).get("schema_types", []))
+    )
+
+    with_schema = pages_df[pages_df["has_schema"]]
+    without_schema = pages_df[~pages_df["has_schema"]]
+
+    schema_count = len(with_schema)
+    no_schema_count = len(without_schema)
+
+    # KPIs
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Pages with Schema", f"{schema_count}/{len(pages_df)}", help="Out of top performing pages")
+    k2.metric("Pages without Schema", f"{no_schema_count}", help="Opportunity to add structured data")
+
+    avg_ctr_schema = round(with_schema["ctr"].mean(), 1) if not with_schema.empty else 0
+    avg_ctr_no_schema = round(without_schema["ctr"].mean(), 1) if not without_schema.empty else 0
+    k3.metric("Avg CTR (with schema)", f"{avg_ctr_schema}%", help="Click-through rate for pages with structured data")
+    k4.metric("Avg CTR (without schema)", f"{avg_ctr_no_schema}%", help="Click-through rate for pages without structured data")
+
+    # Insight
+    if avg_ctr_schema > 0 and avg_ctr_no_schema > 0:
+        diff = round(avg_ctr_schema - avg_ctr_no_schema, 1)
+        if diff > 0:
+            st.success(
+                f"**Pages with schema markup have {diff} percentage points higher CTR** "
+                f"({avg_ctr_schema}% vs {avg_ctr_no_schema}%). Schema is helping our search listings "
+                f"stand out and earn more clicks."
+            )
+        elif diff < 0:
+            st.info(
+                f"Pages without schema currently have higher CTR ({avg_ctr_no_schema}% vs {avg_ctr_schema}%). "
+                f"This may be because schema pages target more competitive queries. "
+                f"Look at position differences — schema pages may rank for harder terms."
+            )
+        else:
+            st.info("CTR is similar with and without schema. Monitor as more pages get markup.")
+    elif schema_count == 0:
+        st.warning("**None of the top pages have schema markup.** Adding structured data is the highest-impact AEO action to take.")
+    elif no_schema_count == 0:
+        st.success("**All top pages have schema markup.** Focus on enriching schema types (add FAQPage, Article) for even more impact.")
+
+    # Comparison chart
+    if not with_schema.empty and not without_schema.empty:
+        comparison = pd.DataFrame([
+            {
+                "Group": "With Schema",
+                "Avg Clicks": round(with_schema["clicks"].mean(), 1),
+                "Avg Impressions": round(with_schema["impressions"].mean(), 1),
+                "Avg CTR": avg_ctr_schema,
+                "Avg Position": round(with_schema["position"].mean(), 1),
+            },
+            {
+                "Group": "Without Schema",
+                "Avg Clicks": round(without_schema["clicks"].mean(), 1),
+                "Avg Impressions": round(without_schema["impressions"].mean(), 1),
+                "Avg CTR": avg_ctr_no_schema,
+                "Avg Position": round(without_schema["position"].mean(), 1),
+            },
+        ])
+
+        st.markdown("#### Side-by-Side Comparison")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig = px.bar(
+                comparison.melt(id_vars="Group", value_vars=["Avg Clicks", "Avg CTR", "Avg Position"]),
+                x="variable", y="value", color="Group", barmode="group",
+                color_discrete_map={"With Schema": COLORS["success"], "Without Schema": COLORS["danger"]},
+                labels={"variable": "", "value": ""},
+            )
+            fig.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.2))
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.dataframe(comparison.style.format({
+                "Avg Clicks": "{:.0f}",
+                "Avg Impressions": "{:.0f}",
+                "Avg CTR": "{:.1f}%",
+                "Avg Position": "{:.1f}",
+            }), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ─── Page-by-Page Breakdown ────────────────────────────
+
+    st.markdown("### Page-by-Page Schema & Performance")
+    st.markdown("Which pages have schema, what type, and how they're performing in search.")
+
+    display_df = pages_df[["page", "has_schema", "schema_types", "clicks", "impressions", "ctr", "position"]].copy()
+    display_df["page"] = display_df["page"].apply(lambda p: p.replace(f"https://www.{domain}", "").replace(f"https://{domain}", "") or "/")
+
+    display_df = display_df.rename(columns={
+        "page": "Page",
+        "has_schema": "Has Schema",
+        "schema_types": "Schema Types",
+        "clicks": "Clicks",
+        "impressions": "Impressions",
+        "ctr": "CTR %",
+        "position": "Position",
+    })
+
+    def style_schema(val):
+        if val is True:
+            return "background-color: #d4edda; color: #155724"
+        elif val is False:
+            return "background-color: #f8d7da; color: #721c24"
+        return ""
+
+    st.dataframe(
+        display_df.style.applymap(style_schema, subset=["Has Schema"]).format({
+            "Clicks": "{:,.0f}", "Impressions": "{:,.0f}",
+            "CTR %": "{:.1f}%", "Position": "{:.1f}",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+    # Highlight pages that need schema
+    if not without_schema.empty:
+        st.markdown("#### Priority Pages to Add Schema")
+        st.markdown("These are your top-performing pages that don't have schema yet — adding structured data could boost their CTR.")
+        high_value_no_schema = without_schema.nlargest(5, "impressions")[["page", "clicks", "impressions", "ctr", "position"]]
+        high_value_no_schema["page"] = high_value_no_schema["page"].apply(
+            lambda p: p.replace(f"https://www.{domain}", "").replace(f"https://{domain}", "") or "/"
+        )
+        st.dataframe(
+            high_value_no_schema.rename(columns={"page": "Page", "clicks": "Clicks", "impressions": "Impressions", "ctr": "CTR %", "position": "Position"}).style.format({
+                "Clicks": "{:,.0f}", "Impressions": "{:,.0f}",
+                "CTR %": "{:.1f}%", "Position": "{:.1f}",
+            }),
+            use_container_width=True, hide_index=True,
+        )
 
 st.markdown("---")
 
-# ─── AI Crawler Access (with real data) ───────────────────
+# ─── AI Citation Readiness ────────────────────────────────
 
-st.markdown("### AI Crawler Access")
-st.markdown("Can AI engines crawl our site? If blocked in robots.txt, they can't cite us.")
+st.markdown("### Content Readiness for AI Citations")
+st.markdown("AI engines prefer content that is concise, factual, and well-structured. Here's how our top pages score.")
 
-if robots_result.get("success"):
-    crawlers = robots_result["crawlers"]
-    crawler_rows = []
-    for bot, info in crawlers.items():
-        status_emoji = "Allowed" if info["status"] == "Allowed" else "BLOCKED"
-        crawler_rows.append({
-            "Crawler": bot,
-            "Platform": info["owner"],
-            "Access": status_emoji,
-            "Critical": "Yes" if info["critical"] else "No",
-            "What This Means": info["impact"],
+if schema_data:
+    citation_rows = []
+    for url, data in schema_data.items():
+        if data.get("error"):
+            continue
+        short_url = url.replace(f"https://www.{domain}", "").replace(f"https://{domain}", "") or "/"
+
+        # Score content readiness
+        readiness_score = 0
+        reasons = []
+
+        if data.get("has_schema"):
+            readiness_score += 30
+            reasons.append("Has schema markup")
+        else:
+            reasons.append("No schema markup")
+
+        if data.get("has_faq_markup"):
+            readiness_score += 20
+            reasons.append("Has FAQ schema (AI favorite)")
+
+        word_count = data.get("word_count", 0)
+        if 500 < word_count < 5000:
+            readiness_score += 20
+            reasons.append(f"Good content length ({word_count:,} words)")
+        elif word_count >= 5000:
+            readiness_score += 10
+            reasons.append(f"Long content ({word_count:,} words) — may need summary sections")
+        else:
+            reasons.append(f"Thin content ({word_count:,} words)")
+
+        if data.get("has_tables") or data.get("has_lists"):
+            readiness_score += 15
+            reasons.append("Has structured content (tables/lists)")
+
+        if data.get("content_signals", 0) >= 3:
+            readiness_score += 15
+            reasons.append("Rich content formatting")
+
+        citation_rows.append({
+            "Page": short_url,
+            "Citation Score": readiness_score,
+            "Schema": "Yes" if data.get("has_schema") else "No",
+            "Word Count": word_count,
+            "Structured Content": "Yes" if data.get("has_tables") or data.get("has_lists") else "No",
+            "Key Factors": " · ".join(reasons[:3]),
         })
 
-    cdf = pd.DataFrame(crawler_rows)
+    if citation_rows:
+        citation_df = pd.DataFrame(citation_rows).sort_values("Citation Score", ascending=False)
 
-    def style_access(val):
-        if val == "Allowed":
-            return "background-color: #d4edda; color: #155724"
-        elif val == "BLOCKED":
-            return "background-color: #f8d7da; color: #721c24"
-        return ""
+        avg_score = round(citation_df["Citation Score"].mean())
+        top_page = citation_df.iloc[0]["Page"]
+        bottom_page = citation_df.iloc[-1]["Page"]
 
-    st.dataframe(
-        cdf.style.applymap(style_access, subset=["Access"]),
-        use_container_width=True, hide_index=True,
-    )
-
-    blocked = [bot for bot, info in crawlers.items() if info["status"] == "Blocked" and info["critical"]]
-    if blocked:
-        st.error(
-            f"**Action Required:** {', '.join(blocked)} {'is' if len(blocked) == 1 else 'are'} blocked. "
-            f"Update robots.txt to allow these crawlers, otherwise "
-            f"{'this AI platform' if len(blocked) == 1 else 'these AI platforms'} cannot index or cite our content."
+        st.markdown(
+            f"**Insight:** Average citation readiness is **{avg_score}/100**. "
+            f"Best page: **{top_page}** ({citation_df.iloc[0]['Citation Score']}/100). "
+            f"Most improvement needed: **{bottom_page}** ({citation_df.iloc[-1]['Citation Score']}/100)."
         )
-    else:
-        st.success("All critical AI crawlers are allowed — our content is accessible to AI engines.")
-else:
-    st.error(f"Could not check robots.txt: {robots_result.get('error', 'Unknown error')}")
+
+        def color_score(val):
+            if isinstance(val, (int, float)):
+                if val >= 60:
+                    return "background-color: #d4edda"
+                elif val >= 30:
+                    return "background-color: #fff3cd"
+                else:
+                    return "background-color: #f8d7da"
+            return ""
+
+        st.dataframe(
+            citation_df.style.applymap(color_score, subset=["Citation Score"]).format({
+                "Word Count": "{:,}",
+            }),
+            use_container_width=True, hide_index=True,
+        )
 
 st.markdown("---")
 
-# ─── llms.txt Status ──────────────────────────────────────
+# ─── AI Traffic vs Schema Correlation ─────────────────────
 
-st.markdown("### llms.txt File")
-st.markdown("A guide for AI crawlers — tells them what our site is about and which pages matter most.")
+st.markdown("### Are Schema Pages Getting AI Traffic?")
 
-if llms_result.get("exists"):
-    st.success(f"**Found** at `{llms_result['url']}` — {llms_result['lines']} lines")
-    st.markdown("**Why this helps:** AI crawlers use llms.txt to understand site structure and prioritize pages, similar to how sitemap.xml helps Google.")
-    with st.expander("View llms.txt content"):
-        st.code(llms_result["preview"])
-else:
-    st.warning(
-        "**Not found.** Creating an llms.txt file gives AI crawlers explicit guidance about our site.\n\n"
-        "**Impact:** Without it, AI crawlers guess which pages matter. With it, we control the narrative.\n\n"
-        "**How to create:** Run `/geo llmstxt animocabrands.com` in Claude Code to auto-generate one."
+ai_sources = ai_traffic.get("ai_referral_sources", [])
+ai_sessions = ai_traffic.get("total_ai_sessions", 0)
+
+if ai_sessions > 0 and not ga4_pages_df.empty:
+    st.markdown(
+        f"We're receiving **{ai_sessions:,} AI referral sessions**. "
+        f"Below are the top pages by traffic — pages with schema markup are highlighted."
     )
 
-st.markdown("---")
-
-# ─── Structured Data ──────────────────────────────────────
-
-st.markdown("### Structured Data (Schema Markup)")
-st.markdown("JSON-LD structured data helps AI engines understand *what* our content is about — not just the text, but the meaning.")
-
-if schema_result.get("found"):
-    st.success(f"**{schema_result['count']} schema type(s) found** on the homepage.")
-
-    schema_df = pd.DataFrame([{"Schema Type": t, "What It Tells AI": _schema_description(t)} for t in schema_result["types"]])
-    st.dataframe(schema_df, use_container_width=True, hide_index=True)
-
-    # Check for missing important schemas
-    found_types = [t.lower() for t in schema_result["types"]]
-    recommended = {
-        "Organization": "Who we are as a company — name, logo, social profiles, founding info",
-        "WebSite": "Site-level info with search action — helps AI understand site scope",
-        "FAQPage": "Question-answer content that AI engines love to cite directly",
-        "Article": "Blog/news content with author, date, publisher info",
-        "BreadcrumbList": "Site hierarchy — helps AI understand content relationships",
-    }
-    missing = {k: v for k, v in recommended.items() if k.lower() not in found_types}
-
-    if missing:
-        st.markdown("**Recommended schemas to add:**")
-        for schema, desc in missing.items():
-            st.markdown(f"- **{schema}** — {desc}")
-else:
-    st.error(
-        "**No structured data found on the homepage.** This is a significant gap.\n\n"
-        "Without schema markup, AI engines rely purely on text parsing to understand our content. "
-        "Adding JSON-LD structured data makes our content machine-readable and dramatically increases "
-        "the chance of being cited.\n\n"
-        "**Priority schemas to add:**\n"
-        "- **Organization** — Company identity\n"
-        "- **WebSite** — Site scope and search\n"
-        "- **FAQPage** — Q&A content for direct citations\n\n"
-        "Run `/geo schema animocabrands.com` to generate these automatically."
+    ga4_pages_df["short_page"] = ga4_pages_df.get("pagePath", ga4_pages_df.columns[0]).apply(
+        lambda p: p if p.startswith("/") else "/" + p
     )
 
-st.markdown("---")
+    # Try to match GA4 pages with schema data
+    ga4_pages_df["has_schema"] = ga4_pages_df["short_page"].apply(
+        lambda p: any(
+            p in url or url.endswith(p)
+            for url in schema_data.keys()
+            if schema_data[url].get("has_schema")
+        ) if schema_data else False
+    )
 
-# ─── Page Fundamentals ────────────────────────────────────
-
-st.markdown("### Homepage Fundamentals")
-
-if not page_result.get("error"):
-    checks = [
-        {"Check": "Page Title", "Status": "Found" if page_result.get("title") else "Missing",
-         "Value": page_result.get("title", "—")[:80],
-         "Why It Matters": "First thing AI sees — used in citations and summaries"},
-        {"Check": "Meta Description", "Status": "Found" if page_result.get("description") else "Missing",
-         "Value": (page_result.get("description", "—") or "—")[:100],
-         "Why It Matters": "AI uses this as a summary when deciding to cite"},
-        {"Check": "H1 Tag", "Status": "Found" if page_result.get("h1_text") else "Missing",
-         "Value": (page_result.get("h1_text", "—") or "—")[:80],
-         "Why It Matters": "Primary heading — AI weights this heavily for topic understanding"},
-        {"Check": "Open Graph Tags", "Status": "Found" if page_result.get("has_og") else "Missing",
-         "Value": "Present" if page_result.get("has_og") else "Missing",
-         "Why It Matters": "Used by social platforms and some AI engines for content previews"},
-        {"Check": "Server-Side Rendering", "Status": "Likely Yes" if page_result.get("ssr") else "Possibly No",
-         "Value": "Content visible in HTML" if page_result.get("ssr") else "May require JavaScript",
-         "Why It Matters": "AI crawlers don't execute JavaScript — SSR is critical"},
-    ]
-
-    checks_df = pd.DataFrame(checks)
-
-    def style_status(val):
-        if val in ["Found", "Likely Yes"]:
-            return "background-color: #d4edda; color: #155724"
-        elif val in ["Missing", "Possibly No"]:
-            return "background-color: #f8d7da; color: #721c24"
-        return ""
-
+    top_ga4 = ga4_pages_df.head(15)
     st.dataframe(
-        checks_df.style.applymap(style_status, subset=["Status"]),
+        top_ga4[["short_page", "has_schema", "screenPageViews", "sessions", "bounceRate"]].rename(columns={
+            "short_page": "Page",
+            "has_schema": "Has Schema",
+            "screenPageViews": "Page Views",
+            "sessions": "Sessions",
+            "bounceRate": "Bounce Rate",
+        }).style.format({
+            "Page Views": "{:,.0f}", "Sessions": "{:,.0f}", "Bounce Rate": "{:.1%}",
+        }),
         use_container_width=True, hide_index=True,
     )
-
-    missing_items = [c for c in checks if c["Status"] in ["Missing", "Possibly No"]]
-    if missing_items:
-        st.warning(f"**{len(missing_items)} issue(s) found** — fixing these improves how AI engines understand and cite our content.")
-    else:
-        st.success("All homepage fundamentals are in place.")
-else:
-    st.error(f"Could not analyze homepage: {page_result.get('error')}")
+elif ai_sessions == 0:
+    st.info(
+        "No AI referral traffic yet to correlate with schema presence. "
+        "Once AI traffic starts flowing, this section will show which pages AI engines are citing "
+        "and whether schema markup makes a difference."
+    )
 
 st.markdown("---")
 
-# ─── Priority Actions ─────────────────────────────────────
+# ─── Recommendations ──────────────────────────────────────
 
-st.markdown("### Top Priority Actions")
+st.markdown("### What to Do Next")
 
-priorities = []
+actions = []
 
-if robots_result.get("success"):
-    blocked_crawlers = [bot for bot, info in robots_result.get("crawlers", {}).items()
-                       if info["status"] == "Blocked" and info["critical"]]
-    if blocked_crawlers:
-        priorities.append(("CRITICAL", f"Unblock {', '.join(blocked_crawlers)} in robots.txt — AI engines cannot see our site"))
+if schema_data:
+    no_schema_pages = [url for url, data in schema_data.items() if not data.get("has_schema") and not data.get("error")]
+    with_schema_pages = [url for url, data in schema_data.items() if data.get("has_schema")]
+    faq_pages = [url for url, data in schema_data.items() if data.get("has_faq_markup")]
 
-if not schema_result.get("found"):
-    priorities.append(("HIGH", "Add JSON-LD structured data to homepage — Organization, WebSite, FAQPage schemas"))
+    if no_schema_pages:
+        actions.append(("HIGH", f"Add schema markup to {len(no_schema_pages)} top pages that don't have it yet"))
 
-if not llms_result.get("exists"):
-    priorities.append(("MEDIUM", "Create llms.txt file to guide AI crawlers"))
+    if not faq_pages:
+        actions.append(("HIGH", "Add FAQPage schema to at least one page — AI engines directly pull Q&A into answers"))
 
-if page_result.get("error") or not page_result.get("description"):
-    priorities.append(("HIGH", "Add/fix meta description on homepage"))
+    if len(with_schema_pages) > 0 and ai_sessions == 0:
+        actions.append(("MEDIUM", "Schema is in place but no AI traffic yet — focus on content quality and brand mentions to trigger citations"))
 
-if not page_result.get("ssr"):
-    priorities.append(("HIGH", "Ensure server-side rendering — AI crawlers can't execute JavaScript"))
+    if ai_sessions > 0:
+        actions.append(("MONITOR", f"AI traffic is flowing ({ai_sessions:,} sessions) — track week-over-week growth"))
 
-if not priorities:
-    st.success("No critical issues found. Focus on content quality and brand presence for maximum AI visibility.")
+if not queries_df.empty:
+    question_queries = queries_df[queries_df["query"].str.lower().str.contains(
+        r"^(how|what|why|when|where|who|which|is |are |can |does )|best|top|vs|review", regex=True, na=False
+    )]
+    if len(question_queries) < 3:
+        actions.append(("HIGH", "Create FAQ/how-to content — very few question queries are finding us in search"))
+
+if not actions:
+    st.success("AEO setup looks solid. Continue monitoring and optimizing content for AI citations.")
 else:
-    for level, action in priorities:
-        if level == "CRITICAL":
-            st.error(f"**{level}:** {action}")
-        elif level == "HIGH":
+    for level, action in actions:
+        if level == "HIGH":
             st.warning(f"**{level}:** {action}")
+        elif level == "MONITOR":
+            st.success(f"**{level}:** {action}")
         else:
             st.info(f"**{level}:** {action}")
 
 st.markdown("---")
-st.caption(f"Live checks on {domain} · Last checked: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Refreshes daily")
+st.caption(f"Data range: {start_str} to {end_str} · Schema scan of top 15 pages · Sources: GSC, GA4, live page analysis")
