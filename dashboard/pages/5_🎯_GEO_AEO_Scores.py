@@ -1,6 +1,6 @@
 """
 Page 5: GEO/AEO Scores
-Citability analysis, brand presence, AI crawler access, and AEO readiness.
+Live crawler access checks, structured data detection, brand presence, and actionable insights.
 """
 
 import streamlit as st
@@ -10,7 +10,7 @@ import pandas as pd
 import sys
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,206 +20,442 @@ sys.path.insert(0, SCRIPTS_DIR)
 from config import COLORS, BRAND_NAME, SITE_URL
 
 st.set_page_config(page_title="GEO/AEO Scores", page_icon="🎯", layout="wide")
-st.markdown("# 🎯 GEO/AEO Readiness Scores")
-st.markdown("How well is animocabrands.com optimized for AI search engines?")
+st.markdown("# 🎯 GEO/AEO Readiness")
+st.markdown("Is animocabrands.com set up for AI search engines to find, crawl, and cite our content?")
 st.markdown("---")
 
-# ─── AI Crawler Access ──────────────────────────────────────
-
-st.markdown("### AI Crawler Access Status")
-st.markdown("Are AI crawlers allowed to access your site?")
+# ─── Live Checks ──────────────────────────────────────────
 
 @st.cache_data(ttl=86400)
-def check_crawler_access(url):
-    """Check robots.txt for AI crawler access."""
+def check_robots_for_ai_crawlers(domain):
+    """Fetch robots.txt and check AI crawler access."""
+    import requests
+    results = {}
+    crawlers = {
+        "GPTBot": {"owner": "OpenAI (ChatGPT)", "critical": True},
+        "ClaudeBot": {"owner": "Anthropic (Claude)", "critical": True},
+        "PerplexityBot": {"owner": "Perplexity AI", "critical": True},
+        "Google-Extended": {"owner": "Google (Gemini/AI Overviews)", "critical": True},
+        "Googlebot": {"owner": "Google Search", "critical": True},
+        "Bingbot": {"owner": "Microsoft (Bing/Copilot)", "critical": False},
+        "Bytespider": {"owner": "ByteDance (TikTok)", "critical": False},
+    }
     try:
-        from fetch_page import check_robots_txt
-        result = check_robots_txt(url)
-        return result
+        resp = requests.get(f"https://{domain}/robots.txt", timeout=10)
+        if resp.status_code == 200:
+            robots_text = resp.text.lower()
+            for bot, info in crawlers.items():
+                bot_lower = bot.lower()
+                # Check if explicitly disallowed
+                blocked = False
+                in_section = False
+                for line in robots_text.split("\n"):
+                    line = line.strip()
+                    if line.startswith("user-agent:"):
+                        agent = line.split(":", 1)[1].strip()
+                        in_section = agent == "*" or bot_lower in agent
+                    elif in_section and line.startswith("disallow:"):
+                        path = line.split(":", 1)[1].strip()
+                        if path == "/" or path == "/*":
+                            blocked = True
+                            break
+
+                results[bot] = {
+                    "owner": info["owner"],
+                    "critical": info["critical"],
+                    "status": "Blocked" if blocked else "Allowed",
+                    "impact": "AI cannot crawl or cite our content" if blocked else "AI can access our content",
+                }
+            return {"success": True, "crawlers": results, "robots_url": f"https://{domain}/robots.txt"}
+        else:
+            return {"success": False, "error": f"robots.txt returned status {resp.status_code}"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
+
 
 @st.cache_data(ttl=86400)
-def check_llms_txt(url):
-    """Check if llms.txt exists."""
+def check_llms_txt(domain):
+    """Check if llms.txt exists and what it contains."""
+    import requests
     try:
-        import requests
-        from urllib.parse import urlparse
-        parsed = urlparse(url if url.startswith("http") else f"https://{url}")
-        domain = parsed.netloc or parsed.path
-        llms_url = f"https://{domain}/llms.txt"
-        resp = requests.get(llms_url, timeout=10)
-        return {
-            "exists": resp.status_code == 200,
-            "url": llms_url,
-            "status_code": resp.status_code,
-            "content_preview": resp.text[:500] if resp.status_code == 200 else None,
-        }
+        resp = requests.get(f"https://{domain}/llms.txt", timeout=10)
+        if resp.status_code == 200:
+            content = resp.text
+            lines = [l for l in content.split("\n") if l.strip()]
+            return {
+                "exists": True,
+                "url": f"https://{domain}/llms.txt",
+                "lines": len(lines),
+                "preview": content[:1000],
+            }
+        return {"exists": False, "status": resp.status_code}
     except Exception as e:
         return {"exists": False, "error": str(e)}
 
-crawlers = {
-    "GPTBot (OpenAI/ChatGPT)": "GPTBot",
-    "ClaudeBot (Anthropic)": "ClaudeBot",
-    "PerplexityBot": "PerplexityBot",
-    "Google-Extended (Gemini)": "Google-Extended",
-    "Googlebot (Search)": "Googlebot",
-    "Bingbot (Bing/Copilot)": "Bingbot",
-}
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("#### robots.txt Crawler Status")
-
-    # This would call the actual robots.txt check in production
-    # For now, show the framework
-    crawler_status = []
-    for display_name, bot_name in crawlers.items():
-        crawler_status.append({
-            "Crawler": display_name,
-            "Bot Name": bot_name,
-            "Status": "Check with `/geo crawlers`",
-        })
-
-    st.dataframe(pd.DataFrame(crawler_status), use_container_width=True, hide_index=True)
-
-    st.info("Run `/geo crawlers animocabrands.com` in Claude Code for a full robots.txt analysis.")
-
-with col2:
-    st.markdown("#### llms.txt Status")
-
-    llms_result = check_llms_txt("animocabrands.com")
-
-    if llms_result.get("exists"):
-        st.success(f"llms.txt found at {llms_result['url']}")
-        if llms_result.get("content_preview"):
-            with st.expander("Preview llms.txt content"):
-                st.code(llms_result["content_preview"])
-    else:
-        st.warning("No llms.txt file found. This file helps AI crawlers understand your site.")
-        st.markdown("""
-        **Create one with:** `/geo llmstxt animocabrands.com`
-
-        llms.txt tells AI crawlers which pages to prioritize and how to categorize your content.
-        """)
-
-st.markdown("---")
-
-# ─── Brand Presence on AI-Cited Platforms ──────────────────
-
-st.markdown("### Brand Presence on AI-Cited Platforms")
-st.markdown("AI engines cite sources they trust. Strong presence on these platforms increases citation probability.")
 
 @st.cache_data(ttl=86400)
-def scan_brand_presence():
+def check_structured_data(domain):
+    """Check homepage for JSON-LD structured data."""
+    import requests
+    from bs4 import BeautifulSoup
     try:
-        from brand_scanner import generate_brand_report
-        return generate_brand_report(BRAND_NAME, "animocabrands.com")
-    except Exception:
-        return None
+        resp = requests.get(f"https://{domain}", timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        })
+        soup = BeautifulSoup(resp.text, "html.parser")
+        scripts = soup.find_all("script", {"type": "application/ld+json"})
+        schemas = []
+        for s in scripts:
+            try:
+                data = json.loads(s.string)
+                if isinstance(data, list):
+                    for item in data:
+                        schemas.append(item.get("@type", "Unknown"))
+                else:
+                    schemas.append(data.get("@type", "Unknown"))
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return {
+            "found": len(schemas) > 0,
+            "count": len(schemas),
+            "types": schemas,
+        }
+    except Exception as e:
+        return {"found": False, "error": str(e)}
 
-brand_data = scan_brand_presence()
 
-if brand_data:
-    platforms = brand_data.get("platforms", {})
-    platform_rows = []
-    for name, info in platforms.items():
-        platform_rows.append({
-            "Platform": name,
-            "Found": "Yes" if info.get("found") else "No",
-            "Correlation": info.get("correlation", "—"),
-            "Details": info.get("details", "—"),
+@st.cache_data(ttl=86400)
+def check_page_basics(domain):
+    """Check basic SEO elements on homepage."""
+    import requests
+    from bs4 import BeautifulSoup
+    try:
+        resp = requests.get(f"https://{domain}", timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        })
+        soup = BeautifulSoup(resp.text, "html.parser")
+        title = soup.find("title")
+        desc = soup.find("meta", attrs={"name": "description"})
+        canonical = soup.find("link", attrs={"rel": "canonical"})
+        h1s = soup.find_all("h1")
+        og_title = soup.find("meta", attrs={"property": "og:title"})
+        og_desc = soup.find("meta", attrs={"property": "og:description"})
+        return {
+            "title": title.text.strip() if title else None,
+            "description": desc["content"] if desc and desc.get("content") else None,
+            "canonical": canonical["href"] if canonical and canonical.get("href") else None,
+            "h1_count": len(h1s),
+            "h1_text": h1s[0].text.strip() if h1s else None,
+            "has_og": bool(og_title),
+            "has_og_desc": bool(og_desc),
+            "ssr": len(soup.find_all("div")) > 10,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+domain = "animocabrands.com"
+
+# Run all checks
+with st.spinner("Running live AEO checks on animocabrands.com..."):
+    robots_result = check_robots_for_ai_crawlers(domain)
+    llms_result = check_llms_txt(domain)
+    schema_result = check_structured_data(domain)
+    page_result = check_page_basics(domain)
+
+# ─── Overall Score ─────────────────────────────────────────
+
+# Calculate a quick AEO readiness score
+score = 0
+max_score = 0
+score_details = []
+
+# Crawler access (30 points)
+if robots_result.get("success"):
+    crawlers = robots_result.get("crawlers", {})
+    critical_crawlers = {k: v for k, v in crawlers.items() if v.get("critical")}
+    allowed = sum(1 for v in critical_crawlers.values() if v["status"] == "Allowed")
+    total_critical = len(critical_crawlers)
+    crawler_score = round(allowed / total_critical * 30) if total_critical > 0 else 0
+    score += crawler_score
+    max_score += 30
+    score_details.append(f"Crawler access: {crawler_score}/30 ({allowed}/{total_critical} critical crawlers allowed)")
+
+# llms.txt (10 points)
+if llms_result.get("exists"):
+    score += 10
+    score_details.append("llms.txt: 10/10 (found)")
+else:
+    score_details.append("llms.txt: 0/10 (not found)")
+max_score += 10
+
+# Structured data (20 points)
+if schema_result.get("found"):
+    schema_score = min(20, schema_result["count"] * 5)
+    score += schema_score
+    score_details.append(f"Structured data: {schema_score}/20 ({schema_result['count']} schemas found)")
+else:
+    score_details.append("Structured data: 0/20 (none found)")
+max_score += 20
+
+# Page basics (20 points)
+if not page_result.get("error"):
+    basics_score = 0
+    if page_result.get("title"): basics_score += 5
+    if page_result.get("description"): basics_score += 5
+    if page_result.get("has_og"): basics_score += 5
+    if page_result.get("ssr"): basics_score += 5
+    score += basics_score
+    score_details.append(f"Page fundamentals: {basics_score}/20")
+max_score += 20
+
+total_pct = round(score / max_score * 100) if max_score > 0 else 0
+
+# Score gauge
+st.markdown("### AEO Readiness Score")
+
+col_score, col_details = st.columns([1, 2])
+
+with col_score:
+    color = COLORS["success"] if total_pct >= 70 else COLORS["warning"] if total_pct >= 40 else COLORS["danger"]
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=total_pct,
+        title={"text": "AEO Readiness"},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"color": color},
+            "steps": [
+                {"range": [0, 40], "color": "#ffcccc"},
+                {"range": [40, 70], "color": "#fff3cd"},
+                {"range": [70, 100], "color": "#d4edda"},
+            ],
+        },
+        number={"suffix": "%"},
+    ))
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+with col_details:
+    if total_pct >= 70:
+        st.success(f"**Score: {total_pct}%** — Strong AEO readiness. Focus on content optimization and brand presence to maximize AI citations.")
+    elif total_pct >= 40:
+        st.warning(f"**Score: {total_pct}%** — Moderate readiness. Key gaps need attention before AI engines will reliably cite us.")
+    else:
+        st.error(f"**Score: {total_pct}%** — Significant gaps. AI engines likely cannot access or properly understand our content.")
+
+    st.markdown("**Score Breakdown:**")
+    for detail in score_details:
+        st.markdown(f"- {detail}")
+
+st.markdown("---")
+
+# ─── AI Crawler Access (with real data) ───────────────────
+
+st.markdown("### AI Crawler Access")
+st.markdown("Can AI engines crawl our site? If blocked in robots.txt, they can't cite us.")
+
+if robots_result.get("success"):
+    crawlers = robots_result["crawlers"]
+    crawler_rows = []
+    for bot, info in crawlers.items():
+        status_emoji = "Allowed" if info["status"] == "Allowed" else "BLOCKED"
+        crawler_rows.append({
+            "Crawler": bot,
+            "Platform": info["owner"],
+            "Access": status_emoji,
+            "Critical": "Yes" if info["critical"] else "No",
+            "What This Means": info["impact"],
         })
 
-    if platform_rows:
-        pdf = pd.DataFrame(platform_rows)
-        st.dataframe(pdf, use_container_width=True, hide_index=True)
+    cdf = pd.DataFrame(crawler_rows)
+
+    def style_access(val):
+        if val == "Allowed":
+            return "background-color: #d4edda; color: #155724"
+        elif val == "BLOCKED":
+            return "background-color: #f8d7da; color: #721c24"
+        return ""
+
+    st.dataframe(
+        cdf.style.applymap(style_access, subset=["Access"]),
+        use_container_width=True, hide_index=True,
+    )
+
+    blocked = [bot for bot, info in crawlers.items() if info["status"] == "Blocked" and info["critical"]]
+    if blocked:
+        st.error(
+            f"**Action Required:** {', '.join(blocked)} {'is' if len(blocked) == 1 else 'are'} blocked. "
+            f"Update robots.txt to allow these crawlers, otherwise "
+            f"{'this AI platform' if len(blocked) == 1 else 'these AI platforms'} cannot index or cite our content."
+        )
+    else:
+        st.success("All critical AI crawlers are allowed — our content is accessible to AI engines.")
 else:
-    # Show the framework even without live data
-    platforms_info = pd.DataFrame([
-        {"Platform": "YouTube", "AI Citation Correlation": "0.737 (Strongest)", "Priority": "Critical"},
-        {"Platform": "Reddit", "AI Citation Correlation": "High", "Priority": "Critical"},
-        {"Platform": "Wikipedia", "AI Citation Correlation": "High", "Priority": "High"},
-        {"Platform": "LinkedIn", "AI Citation Correlation": "Medium-High", "Priority": "High"},
-        {"Platform": "Quora", "AI Citation Correlation": "Medium", "Priority": "Medium"},
-        {"Platform": "GitHub", "AI Citation Correlation": "Medium", "Priority": "Medium"},
-        {"Platform": "Stack Overflow", "AI Citation Correlation": "Medium", "Priority": "Low"},
-        {"Platform": "Crunchbase", "AI Citation Correlation": "Medium", "Priority": "Medium"},
-        {"Platform": "G2", "AI Citation Correlation": "Medium", "Priority": "Low"},
-        {"Platform": "Trustpilot", "AI Citation Correlation": "Medium", "Priority": "Medium"},
-    ])
-
-    st.dataframe(platforms_info, use_container_width=True, hide_index=True)
-    st.info("Run `/geo brands animocabrands.com` in Claude Code for a full brand presence scan.")
+    st.error(f"Could not check robots.txt: {robots_result.get('error', 'Unknown error')}")
 
 st.markdown("---")
 
-# ─── AEO Readiness Checklist ──────────────────────────────
+# ─── llms.txt Status ──────────────────────────────────────
 
-st.markdown("### AEO Readiness Checklist")
+st.markdown("### llms.txt File")
+st.markdown("A guide for AI crawlers — tells them what our site is about and which pages matter most.")
 
-checklist = [
-    {"Item": "Structured Data (JSON-LD)", "Category": "Schema", "Impact": "High",
-     "Description": "Organization, WebSite, Article schema on key pages"},
-    {"Item": "AI Crawler Access", "Category": "Technical", "Impact": "Critical",
-     "Description": "GPTBot, ClaudeBot, PerplexityBot allowed in robots.txt"},
-    {"Item": "llms.txt File", "Category": "Technical", "Impact": "Medium",
-     "Description": "Guide AI crawlers to your most important content"},
-    {"Item": "Citation-Ready Content", "Category": "Content", "Impact": "High",
-     "Description": "Concise, factual paragraphs (134-167 words) that AI can quote"},
-    {"Item": "FAQ Sections", "Category": "Content", "Impact": "High",
-     "Description": "Question-answer format that matches AI search patterns"},
-    {"Item": "Author/Expertise Signals", "Category": "E-E-A-T", "Impact": "High",
-     "Description": "Named authors, credentials, author schema markup"},
-    {"Item": "Brand Mentions (YouTube)", "Category": "Authority", "Impact": "Critical",
-     "Description": "YouTube has 0.737 correlation with AI citations — strongest signal"},
-    {"Item": "Brand Mentions (Reddit)", "Category": "Authority", "Impact": "High",
-     "Description": "Authentic discussions and recommendations on relevant subreddits"},
-    {"Item": "Wikipedia Presence", "Category": "Authority", "Impact": "High",
-     "Description": "Wikipedia/Wikidata entity = trusted source for AI engines"},
-    {"Item": "Server-Side Rendering", "Category": "Technical", "Impact": "High",
-     "Description": "AI crawlers don't execute JavaScript — SSR is required"},
-    {"Item": "Fast Load Times", "Category": "Technical", "Impact": "Medium",
-     "Description": "Core Web Vitals affect crawl priority for all bots"},
-    {"Item": "Original Data & Statistics", "Category": "Content", "Impact": "High",
-     "Description": "Unique research, case studies, proprietary data that AI engines prefer to cite"},
-]
-
-checklist_df = pd.DataFrame(checklist)
-
-# Color-code by impact
-def highlight_impact(val):
-    colors = {"Critical": "background-color: #d63031; color: white",
-              "High": "background-color: #fdcb6e",
-              "Medium": "background-color: #dfe6e9"}
-    return colors.get(val, "")
-
-st.dataframe(
-    checklist_df.style.applymap(highlight_impact, subset=["Impact"]),
-    use_container_width=True, hide_index=True,
-)
+if llms_result.get("exists"):
+    st.success(f"**Found** at `{llms_result['url']}` — {llms_result['lines']} lines")
+    st.markdown("**Why this helps:** AI crawlers use llms.txt to understand site structure and prioritize pages, similar to how sitemap.xml helps Google.")
+    with st.expander("View llms.txt content"):
+        st.code(llms_result["preview"])
+else:
+    st.warning(
+        "**Not found.** Creating an llms.txt file gives AI crawlers explicit guidance about our site.\n\n"
+        "**Impact:** Without it, AI crawlers guess which pages matter. With it, we control the narrative.\n\n"
+        "**How to create:** Run `/geo llmstxt animocabrands.com` in Claude Code to auto-generate one."
+    )
 
 st.markdown("---")
 
-# ─── GEO Score Gauge ──────────────────────────────────────
+# ─── Structured Data ──────────────────────────────────────
 
-st.markdown("### Run a Full GEO Audit")
-st.markdown("""
-For a comprehensive GEO score (0-100) with detailed analysis across all categories, run:
+st.markdown("### Structured Data (Schema Markup)")
+st.markdown("JSON-LD structured data helps AI engines understand *what* our content is about — not just the text, but the meaning.")
 
-```
-/geo audit animocabrands.com
-```
+if schema_result.get("found"):
+    st.success(f"**{schema_result['count']} schema type(s) found** on the homepage.")
 
-This performs a full audit across:
-- AI Citability & Visibility (25%)
-- Brand Authority Signals (20%)
-- Content Quality & E-E-A-T (20%)
-- Technical Foundations (15%)
-- Structured Data (10%)
-- Platform Optimization (10%)
-""")
+    schema_df = pd.DataFrame([{"Schema Type": t, "What It Tells AI": _schema_description(t)} for t in schema_result["types"]])
+    st.dataframe(schema_df, use_container_width=True, hide_index=True)
+
+    # Check for missing important schemas
+    found_types = [t.lower() for t in schema_result["types"]]
+    recommended = {
+        "Organization": "Who we are as a company — name, logo, social profiles, founding info",
+        "WebSite": "Site-level info with search action — helps AI understand site scope",
+        "FAQPage": "Question-answer content that AI engines love to cite directly",
+        "Article": "Blog/news content with author, date, publisher info",
+        "BreadcrumbList": "Site hierarchy — helps AI understand content relationships",
+    }
+    missing = {k: v for k, v in recommended.items() if k.lower() not in found_types}
+
+    if missing:
+        st.markdown("**Recommended schemas to add:**")
+        for schema, desc in missing.items():
+            st.markdown(f"- **{schema}** — {desc}")
+else:
+    st.error(
+        "**No structured data found on the homepage.** This is a significant gap.\n\n"
+        "Without schema markup, AI engines rely purely on text parsing to understand our content. "
+        "Adding JSON-LD structured data makes our content machine-readable and dramatically increases "
+        "the chance of being cited.\n\n"
+        "**Priority schemas to add:**\n"
+        "- **Organization** — Company identity\n"
+        "- **WebSite** — Site scope and search\n"
+        "- **FAQPage** — Q&A content for direct citations\n\n"
+        "Run `/geo schema animocabrands.com` to generate these automatically."
+    )
 
 st.markdown("---")
-st.caption(f"Brand: {BRAND_NAME} · Site: {SITE_URL}")
+
+# ─── Page Fundamentals ────────────────────────────────────
+
+st.markdown("### Homepage Fundamentals")
+
+if not page_result.get("error"):
+    checks = [
+        {"Check": "Page Title", "Status": "Found" if page_result.get("title") else "Missing",
+         "Value": page_result.get("title", "—")[:80],
+         "Why It Matters": "First thing AI sees — used in citations and summaries"},
+        {"Check": "Meta Description", "Status": "Found" if page_result.get("description") else "Missing",
+         "Value": (page_result.get("description", "—") or "—")[:100],
+         "Why It Matters": "AI uses this as a summary when deciding to cite"},
+        {"Check": "H1 Tag", "Status": "Found" if page_result.get("h1_text") else "Missing",
+         "Value": (page_result.get("h1_text", "—") or "—")[:80],
+         "Why It Matters": "Primary heading — AI weights this heavily for topic understanding"},
+        {"Check": "Open Graph Tags", "Status": "Found" if page_result.get("has_og") else "Missing",
+         "Value": "Present" if page_result.get("has_og") else "Missing",
+         "Why It Matters": "Used by social platforms and some AI engines for content previews"},
+        {"Check": "Server-Side Rendering", "Status": "Likely Yes" if page_result.get("ssr") else "Possibly No",
+         "Value": "Content visible in HTML" if page_result.get("ssr") else "May require JavaScript",
+         "Why It Matters": "AI crawlers don't execute JavaScript — SSR is critical"},
+    ]
+
+    checks_df = pd.DataFrame(checks)
+
+    def style_status(val):
+        if val in ["Found", "Likely Yes"]:
+            return "background-color: #d4edda; color: #155724"
+        elif val in ["Missing", "Possibly No"]:
+            return "background-color: #f8d7da; color: #721c24"
+        return ""
+
+    st.dataframe(
+        checks_df.style.applymap(style_status, subset=["Status"]),
+        use_container_width=True, hide_index=True,
+    )
+
+    missing_items = [c for c in checks if c["Status"] in ["Missing", "Possibly No"]]
+    if missing_items:
+        st.warning(f"**{len(missing_items)} issue(s) found** — fixing these improves how AI engines understand and cite our content.")
+    else:
+        st.success("All homepage fundamentals are in place.")
+else:
+    st.error(f"Could not analyze homepage: {page_result.get('error')}")
+
+st.markdown("---")
+
+# ─── Priority Actions ─────────────────────────────────────
+
+st.markdown("### Top Priority Actions")
+
+priorities = []
+
+if robots_result.get("success"):
+    blocked_crawlers = [bot for bot, info in robots_result.get("crawlers", {}).items()
+                       if info["status"] == "Blocked" and info["critical"]]
+    if blocked_crawlers:
+        priorities.append(("CRITICAL", f"Unblock {', '.join(blocked_crawlers)} in robots.txt — AI engines cannot see our site"))
+
+if not schema_result.get("found"):
+    priorities.append(("HIGH", "Add JSON-LD structured data to homepage — Organization, WebSite, FAQPage schemas"))
+
+if not llms_result.get("exists"):
+    priorities.append(("MEDIUM", "Create llms.txt file to guide AI crawlers"))
+
+if page_result.get("error") or not page_result.get("description"):
+    priorities.append(("HIGH", "Add/fix meta description on homepage"))
+
+if not page_result.get("ssr"):
+    priorities.append(("HIGH", "Ensure server-side rendering — AI crawlers can't execute JavaScript"))
+
+if not priorities:
+    st.success("No critical issues found. Focus on content quality and brand presence for maximum AI visibility.")
+else:
+    for level, action in priorities:
+        if level == "CRITICAL":
+            st.error(f"**{level}:** {action}")
+        elif level == "HIGH":
+            st.warning(f"**{level}:** {action}")
+        else:
+            st.info(f"**{level}:** {action}")
+
+st.markdown("---")
+st.caption(f"Live checks on {domain} · Last checked: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Refreshes daily")
+
+
+def _schema_description(schema_type):
+    """Return human-readable description for common schema types."""
+    descriptions = {
+        "Organization": "Company identity — name, logo, social profiles. Helps AI cite us correctly.",
+        "WebSite": "Site-level info — helps AI understand our site's purpose and scope.",
+        "WebPage": "Individual page metadata — helps AI categorize content.",
+        "Article": "Blog/news content with author and publication info — boosts citation credibility.",
+        "FAQPage": "Question-answer pairs — AI engines pull these directly into answers.",
+        "BreadcrumbList": "Site navigation hierarchy — helps AI understand content relationships.",
+        "Product": "Product details — useful for commerce-related AI queries.",
+        "LocalBusiness": "Physical location info — critical for local AI search results.",
+        "Person": "Author/team info — strengthens E-E-A-T signals for AI.",
+        "SoftwareApplication": "App/tool details — helps AI recommend our products.",
+        "HowTo": "Step-by-step instructions — AI loves to cite these directly.",
+        "VideoObject": "Video content metadata — YouTube correlation with AI citations is 0.737.",
+    }
+    return descriptions.get(schema_type, f"Tells AI this content is a {schema_type}.")
