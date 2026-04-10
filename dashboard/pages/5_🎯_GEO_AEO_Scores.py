@@ -19,6 +19,26 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 from config import COLORS, BRAND_NAME, SITE_URL
 
+
+def _schema_description(schema_type):
+    """Return human-readable description for common schema types."""
+    descriptions = {
+        "Organization": "Company identity — name, logo, social profiles. Helps AI cite us correctly.",
+        "WebSite": "Site-level info — helps AI understand our site's purpose and scope.",
+        "WebPage": "Individual page metadata — helps AI categorize content.",
+        "Article": "Blog/news content with author and publication info — boosts citation credibility.",
+        "FAQPage": "Question-answer pairs — AI engines pull these directly into answers.",
+        "BreadcrumbList": "Site navigation hierarchy — helps AI understand content relationships.",
+        "Product": "Product details — useful for commerce-related AI queries.",
+        "LocalBusiness": "Physical location info — critical for local AI search results.",
+        "Person": "Author/team info — strengthens E-E-A-T signals for AI.",
+        "SoftwareApplication": "App/tool details — helps AI recommend our products.",
+        "HowTo": "Step-by-step instructions — AI loves to cite these directly.",
+        "VideoObject": "Video content metadata — YouTube correlation with AI citations is 0.737.",
+    }
+    return descriptions.get(schema_type, f"Tells AI this content is a {schema_type}.")
+
+
 st.set_page_config(page_title="GEO/AEO Scores", page_icon="🎯", layout="wide")
 st.markdown("# 🎯 GEO/AEO Readiness")
 st.markdown("Is animocabrands.com set up for AI search engines to find, crawl, and cite our content?")
@@ -440,22 +460,3 @@ else:
 
 st.markdown("---")
 st.caption(f"Live checks on {domain} · Last checked: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Refreshes daily")
-
-
-def _schema_description(schema_type):
-    """Return human-readable description for common schema types."""
-    descriptions = {
-        "Organization": "Company identity — name, logo, social profiles. Helps AI cite us correctly.",
-        "WebSite": "Site-level info — helps AI understand our site's purpose and scope.",
-        "WebPage": "Individual page metadata — helps AI categorize content.",
-        "Article": "Blog/news content with author and publication info — boosts citation credibility.",
-        "FAQPage": "Question-answer pairs — AI engines pull these directly into answers.",
-        "BreadcrumbList": "Site navigation hierarchy — helps AI understand content relationships.",
-        "Product": "Product details — useful for commerce-related AI queries.",
-        "LocalBusiness": "Physical location info — critical for local AI search results.",
-        "Person": "Author/team info — strengthens E-E-A-T signals for AI.",
-        "SoftwareApplication": "App/tool details — helps AI recommend our products.",
-        "HowTo": "Step-by-step instructions — AI loves to cite these directly.",
-        "VideoObject": "Video content metadata — YouTube correlation with AI citations is 0.737.",
-    }
-    return descriptions.get(schema_type, f"Tells AI this content is a {schema_type}.")
