@@ -8,6 +8,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import sys, os
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_loader import (
@@ -172,49 +173,99 @@ with tab_okr:
         st.plotly_chart(fig2, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════
-# Tab 3: Social Performance
+# Tab 3: Social Performance (Agorapulse)
 # ═══════════════════════════════════════════════════════════
 
 with tab_social:
-    st.markdown("### Monthly Social Media Metrics")
-    st.markdown("*Data from Agorapulse (when connected) or manual entry.*")
+    st.markdown("### Social Media Performance")
+    st.markdown("*Live data from Agorapulse — 11 profiles across Animoca Brands & Minds.*")
 
-    months = ["Jan 2026", "Feb 2026", "Mar 2026", "Apr 2026"]
-    selected_month = st.selectbox("Month", months, index=len(months) - 1, key="soc_m")
+    SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    sys.path.insert(0, SCRIPTS_DIR)
 
-    social_data = [{"Platform": p, "Followers": "—", "Net New": "—",
-                    "Reach": "—", "Engagement %": "—", "Posts": "—"}
-                   for p in SOCIAL_PLATFORMS]
-    st.dataframe(pd.DataFrame(social_data), use_container_width=True, hide_index=True)
+    @st.cache_data(ttl=86400)
+    def load_agorapulse_data(since, until):
+        try:
+            from agorapulse_fetcher import get_all_profiles_summary
+            return get_all_profiles_summary(since, until)
+        except Exception as e:
+            return {"error": str(e)}
+
+    # Date range for social data
+    col_s1, col_s2, _ = st.columns([1, 1, 2])
+    with col_s1:
+        soc_start = st.date_input("From", datetime.now() - timedelta(days=30), key="soc_s")
+    with col_s2:
+        soc_end = st.date_input("To", datetime.now(), key="soc_e")
+
+    soc_start_str = soc_start.strftime("%Y-%m-%d")
+    soc_end_str = soc_end.strftime("%Y-%m-%d")
+
+    with st.spinner("Loading social data from Agorapulse..."):
+        social_results = load_agorapulse_data(soc_start_str, soc_end_str)
+
+    if isinstance(social_results, dict) and "error" in social_results:
+        st.error(f"Agorapulse connection error: {social_results['error']}")
+        st.info("Check that your API key is saved at `~/.claude/google/agorapulse.txt`")
+    elif isinstance(social_results, list):
+        # Split into Brands and Minds
+        brands_data = [r for r in social_results if "Brands" in r.get("name", "")]
+        minds_data = [r for r in social_results if "Minds" in r.get("name", "")]
+
+        sub_brands, sub_minds = st.tabs(["Animoca Brands", "Animoca Minds"])
+
+        for tab, data, label in [(sub_brands, brands_data, "Brands"), (sub_minds, minds_data, "Minds")]:
+            with tab:
+                if not data:
+                    st.info(f"No data for Animoca {label}")
+                    continue
+
+                rows = []
+                for profile in data:
+                    if "error" in profile:
+                        rows.append({
+                            "Platform": profile["platform"],
+                            "Status": f"Error: {profile['error'][:50]}",
+                        })
+                        continue
+
+                    audience = profile.get("audience", {})
+                    content = profile.get("content", {})
+
+                    rows.append({
+                        "Platform": profile["platform"],
+                        "Audience Data": "Yes" if audience and not isinstance(audience, str) else "No",
+                        "Content Data": "Yes" if content and not isinstance(content, str) else "No",
+                    })
+
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                # Show raw data in expanders
+                for profile in data:
+                    if "error" in profile:
+                        continue
+                    with st.expander(f"{profile['platform']} — {profile['name']} (raw data)"):
+                        if profile.get("audience"):
+                            st.markdown("**Audience Data:**")
+                            st.json(profile["audience"])
+                        if profile.get("content"):
+                            st.markdown("**Content Data:**")
+                            st.json(profile["content"])
+
+        st.markdown("---")
+        st.markdown("### Connected Profiles")
+        profiles_table = []
+        for r in social_results:
+            profiles_table.append({
+                "Platform": r["platform"],
+                "Account": r["name"],
+                "Profile ID": r["profile_uid"],
+                "Status": "Error" if "error" in r else "Connected",
+            })
+        st.dataframe(pd.DataFrame(profiles_table), use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Agorapulse Integration")
-    st.info("""
-    **To connect Agorapulse:**
-    1. Go to Agorapulse > Settings > API
-    2. Generate an API key
-    3. Share it and we'll auto-populate this table
-
-    Once connected, follower counts, reach, engagement, and posting cadence
-    will update automatically.
-    """)
-
-    st.markdown("---")
-    st.markdown("### Quick Manual Entry")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        for platform in SOCIAL_PLATFORMS[:3]:
-            st.markdown(f"**{platform}**")
-            st.number_input(f"Followers", 0, key=f"{platform}_f")
-            st.number_input(f"Engagement %", 0.0, step=0.1, key=f"{platform}_e")
-    with col2:
-        for platform in SOCIAL_PLATFORMS[3:]:
-            st.markdown(f"**{platform}**")
-            st.number_input(f"Followers", 0, key=f"{platform}_f")
-            st.number_input(f"Engagement %", 0.0, step=0.1, key=f"{platform}_e")
-
-    st.caption("Manual entries are session-only.")
+    st.caption("Data: Agorapulse API | 11 profiles | Refreshes daily")
 
 st.markdown("---")
 st.caption("Data: GA4, GSC | Manual: Commentary, Social metrics")
