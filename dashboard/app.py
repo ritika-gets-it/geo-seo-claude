@@ -12,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
 st.markdown("""
 <style>
     [data-testid="stSidebar"] { background-color: #1a1a2e; }
@@ -31,13 +30,10 @@ with st.sidebar:
     st.markdown("""
     **Pages**
     1. Executive Summary
-    2. Traffic Deep Dive
-    3. Search Performance
+    2. Traffic & Channels
+    3. Search & Content
     4. AI & AEO Tracking
-    5. Content Performance
-    6. Weekly Insights
-    7. Baseline & OKR Tracking
-    8. Social Performance
+    5. Insights, OKR & Social
     """)
     st.markdown("---")
     st.markdown("*Data: Jan 25 – Apr 7, 2026*")
@@ -48,8 +44,7 @@ with st.sidebar:
 
 st.markdown("# AEO Performance Dashboard")
 st.markdown("**Animoca Brands** — animocabrands.com")
-st.markdown("Tracking AI Engine Optimization impact on search visibility and traffic.")
 st.markdown("---")
 st.markdown("Select a page from the sidebar to get started.")
 st.markdown("---")
-st.caption("Data sources: Google Search Console · Google Analytics 4 · Period: Jan 25 – Apr 7, 2026")
+st.caption("Data: Google Search Console + Google Analytics 4 | Period: Jan 25 – Apr 7, 2026")
