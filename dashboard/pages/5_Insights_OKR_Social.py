@@ -221,12 +221,14 @@ with tab_social:
                     continue
 
                 rows = []
+                error_details = []
                 for profile in data:
                     if "error" in profile:
                         rows.append({
                             "Platform": profile["platform"],
-                            "Status": f"Error: {profile['error'][:50]}",
+                            "Status": "Error",
                         })
+                        error_details.append((profile["platform"], profile["error"]))
                         continue
 
                     audience = profile.get("audience", {})
@@ -239,6 +241,12 @@ with tab_social:
                     })
 
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                if error_details:
+                    with st.expander(f"Full error details ({len(error_details)})"):
+                        for platform, err in error_details:
+                            st.markdown(f"**{platform}**")
+                            st.code(str(err))
 
                 # Show raw data in expanders
                 for profile in data:
