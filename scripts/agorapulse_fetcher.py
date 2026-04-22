@@ -65,7 +65,11 @@ def _api_request(endpoint, params=None):
     headers = {"X-API-KEY": api_key, "Accept": "application/json"}
     url = f"{BASE_URL}{endpoint}"
     resp = requests.get(url, headers=headers, params=params, timeout=30)
-    resp.raise_for_status()
+    if not resp.ok:
+        body = resp.text[:500] if resp.text else "(empty body)"
+        raise requests.HTTPError(
+            f"{resp.status_code} {resp.reason} for {url} — body: {body}"
+        )
     return resp.json()
 
 
