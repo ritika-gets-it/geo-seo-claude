@@ -31,6 +31,24 @@ OAUTH_CLIENT_FILE = os.path.join(DEFAULT_CREDENTIALS_DIR, "client-secrets.json")
 OAUTH_TOKEN_FILE = os.path.join(DEFAULT_CREDENTIALS_DIR, "token.json")
 
 
+def _load_service_account_info_from_secrets():
+    """Return service account dict from Streamlit secrets, or None if unavailable."""
+    try:
+        import streamlit as st
+    except ImportError:
+        return None
+    try:
+        if "google_service_account" in st.secrets:
+            return dict(st.secrets["google_service_account"])
+    except Exception:
+        return None
+    return None
+
+
+def _has_service_account_credentials():
+    return os.path.exists(SERVICE_ACCOUNT_FILE) or _load_service_account_info_from_secrets() is not None
+
+
 def get_credentials(scopes=None, auth_type="auto"):
     """
     Get Google API credentials.
@@ -54,17 +72,19 @@ def get_credentials(scopes=None, auth_type="auto"):
     elif auth_type == "oauth":
         return _get_oauth_credentials(scopes)
     elif auth_type == "auto":
-        # Try service account first, fall back to OAuth
-        if os.path.exists(SERVICE_ACCOUNT_FILE):
+        # Try service account first (Streamlit secrets or local file), fall back to OAuth
+        if _has_service_account_credentials():
             return _get_service_account_credentials(scopes)
         elif os.path.exists(OAUTH_CLIENT_FILE) or os.path.exists(OAUTH_TOKEN_FILE):
             return _get_oauth_credentials(scopes)
         else:
             raise FileNotFoundError(
                 "No Google credentials found. Please set up authentication:\n\n"
-                "Option 1 — Service Account (recommended for automation):\n"
+                "Option 1 — Service Account via Streamlit secrets (for Streamlit Cloud):\n"
+                "  Add a [google_service_account] block to .streamlit/secrets.toml\n\n"
+                "Option 2 — Service Account via file (recommended for local automation):\n"
                 f"  Place service account JSON at: {SERVICE_ACCOUNT_FILE}\n\n"
-                "Option 2 — OAuth2 (for personal accounts):\n"
+                "Option 3 — OAuth2 (for personal accounts):\n"
                 f"  Place OAuth client secrets at: {OAUTH_CLIENT_FILE}\n\n"
                 "See: https://console.cloud.google.com/apis/credentials"
             )
@@ -73,17 +93,22 @@ def get_credentials(scopes=None, auth_type="auto"):
 
 
 def _get_service_account_credentials(scopes):
-    """Authenticate using a service account JSON key file."""
+    """Authenticate using a service account key from Streamlit secrets or JSON file."""
+    info = _load_service_account_info_from_secrets()
+    if info is not None:
+        return service_account.Credentials.from_service_account_info(info, scopes=scopes)
+
     if not os.path.exists(SERVICE_ACCOUNT_FILE):
         raise FileNotFoundError(
-            f"Service account file not found at: {SERVICE_ACCOUNT_FILE}\n"
+            "Service account credentials not found. Either add a [google_service_account] "
+            "block to Streamlit secrets, or place the JSON key at: "
+            f"{SERVICE_ACCOUNT_FILE}\n"
             "Download it from Google Cloud Console > IAM & Admin > Service Accounts."
         )
 
-    credentials = service_account.Credentials.from_service_account_file(
+    return service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE, scopes=scopes
     )
-    return credentials
 
 
 def _get_oauth_credentials(scopes):
@@ -116,14 +141,20 @@ def _get_oauth_credentials(scopes):
 
 def check_setup():
     """Check if Google API credentials are configured and return status."""
+    service_account_in_secrets = _load_service_account_info_from_secrets() is not None
     status = {
         "credentials_dir": DEFAULT_CREDENTIALS_DIR,
         "service_account_exists": os.path.exists(SERVICE_ACCOUNT_FILE),
+        "service_account_in_secrets": service_account_in_secrets,
         "oauth_client_exists": os.path.exists(OAUTH_CLIENT_FILE),
         "oauth_token_exists": os.path.exists(OAUTH_TOKEN_FILE),
         "ready": False,
     }
-    status["ready"] = status["service_account_exists"] or status["oauth_token_exists"]
+    status["ready"] = (
+        status["service_account_exists"]
+        or status["service_account_in_secrets"]
+        or status["oauth_token_exists"]
+    )
     return status
 
 
