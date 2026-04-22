@@ -36,7 +36,15 @@ PROFILES = {
 
 
 def _get_api_key():
-    """Read API key from file."""
+    """Read API key from Streamlit secrets or local file."""
+    try:
+        import streamlit as st
+        key = st.secrets.get("AGORAPULSE_API_KEY")
+        if key:
+            return str(key).strip()
+    except Exception:
+        pass
+
     key_paths = [
         os.path.expanduser("~/.claude/google/agorapulse.txt"),
         os.path.join(os.path.dirname(__file__), "agorapulse.txt"),
@@ -46,7 +54,8 @@ def _get_api_key():
             with open(path) as f:
                 return f.read().strip()
     raise FileNotFoundError(
-        "Agorapulse API key not found. Save it to ~/.claude/google/agorapulse.txt"
+        "Agorapulse API key not found. Set AGORAPULSE_API_KEY in Streamlit secrets "
+        "or save the key to ~/.claude/google/agorapulse.txt"
     )
 
 
