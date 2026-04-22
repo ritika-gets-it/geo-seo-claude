@@ -222,6 +222,7 @@ with tab_social:
 
                 rows = []
                 error_details = []
+                per_profile_details = []
                 for profile in data:
                     if profile.get("unsupported"):
                         rows.append({
@@ -237,13 +238,53 @@ with tab_social:
                         error_details.append((profile["platform"], profile["error"]))
                         continue
 
-                    audience = profile.get("audience", {})
-                    content = profile.get("content", {})
+                    audience = profile.get("audience") or {}
+                    days = audience.get("data") or []
+                    valid_days = [
+                        d for d in days
+                        if d.get("viewsCount") is not None
+                        and d.get("followersCount") is not None
+                    ]
+
+                    if not valid_days:
+                        rows.append({
+                            "Platform": profile["platform"],
+                            "Status": "No data for selected range",
+                        })
+                        continue
+
+                    def _sum(field):
+                        return sum((d.get(field) or 0) for d in valid_days)
+
+                    total_views = _sum("viewsCount")
+                    total_engagements = _sum("engagementCount")
+                    total_likes = _sum("likesCount")
+                    total_comments = _sum("receivedCommentsCount")
+                    total_shares = _sum("sharesCount")
+                    total_videos = _sum("publishedVideoCount")
+                    follower_change = _sum("followersGainedCount")
+                    end_followers = valid_days[-1]["followersCount"]
+                    start_followers = valid_days[0]["followersCount"]
+                    eng_rate = (total_engagements / total_views * 100) if total_views else 0.0
 
                     rows.append({
                         "Platform": profile["platform"],
-                        "Audience Data": "Yes" if audience and not isinstance(audience, str) else "No",
-                        "Content Data": "Yes" if content and not isinstance(content, str) else "No",
+                        "Followers (end)": f"{end_followers:,}",
+                        "Follower Δ": f"{follower_change:+,}",
+                        "Views": f"{total_views:,}",
+                        "Engagements": f"{total_engagements:,}",
+                        "Eng Rate": f"{eng_rate:.2f}%",
+                        "Likes": f"{total_likes:,}",
+                        "Comments": f"{total_comments:,}",
+                        "Shares": f"{total_shares:,}",
+                        "Posts": f"{total_videos:,}",
+                    })
+
+                    per_profile_details.append({
+                        "profile": profile,
+                        "valid_days": valid_days,
+                        "start_followers": start_followers,
+                        "end_followers": end_followers,
                     })
 
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -254,17 +295,56 @@ with tab_social:
                             st.markdown(f"**{platform}**")
                             st.code(str(err))
 
-                # Show raw data in expanders
-                for profile in data:
-                    if "error" in profile:
-                        continue
-                    with st.expander(f"{profile['platform']} — {profile['name']} (raw data)"):
-                        if profile.get("audience"):
-                            st.markdown("**Audience Data:**")
-                            st.json(profile["audience"])
-                        if profile.get("content"):
-                            st.markdown("**Content Data:**")
-                            st.json(profile["content"])
+                for detail in per_profile_details:
+                    profile = detail["profile"]
+                    valid_days = detail["valid_days"]
+
+                    with st.expander(f"{profile['platform']} — {profile['name']} (daily detail)"):
+                        df = pd.DataFrame(valid_days)
+                        df["date"] = pd.to_datetime(df["date"])
+                        df = df.sort_values("date")
+
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric(
+                            "Followers",
+                            f"{detail['end_followers']:,}",
+                            f"{detail['end_followers'] - detail['start_followers']:+,}",
+                        )
+                        total_views = int(df["viewsCount"].sum())
+                        total_eng = int(df["engagementCount"].sum())
+                        m2.metric("Total views", f"{total_views:,}")
+                        m3.metric("Total engagements", f"{total_eng:,}")
+                        m4.metric(
+                            "Avg eng rate",
+                            f"{(total_eng / total_views * 100) if total_views else 0:.2f}%",
+                        )
+
+                        best = df.loc[df["engagementCount"].idxmax()] if len(df) and df["engagementCount"].max() > 0 else None
+                        if best is not None:
+                            st.caption(
+                                f"Best engagement day: **{best['date'].strftime('%Y-%m-%d')}** — "
+                                f"{int(best['engagementCount'])} engagements on {int(best['viewsCount'])} views "
+                                f"({best['engagementRatePerView']:.1f}% rate)"
+                            )
+
+                        st.markdown("**Daily trend**")
+                        chart_df = df.set_index("date")[["viewsCount", "engagementCount", "followersCount"]]
+                        st.line_chart(chart_df, height=220)
+
+                        st.markdown("**Day-by-day**")
+                        display_df = df[[
+                            "date", "followersCount", "followersGainedCount",
+                            "viewsCount", "engagementCount", "engagementRatePerView",
+                            "likesCount", "receivedCommentsCount", "sharesCount",
+                            "publishedVideoCount",
+                        ]].copy()
+                        display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
+                        display_df.columns = [
+                            "Date", "Followers", "Follower Δ",
+                            "Views", "Engagements", "Eng Rate %",
+                            "Likes", "Comments", "Shares", "Posts",
+                        ]
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         st.markdown("---")
         st.markdown("### Connected Profiles")
