@@ -328,22 +328,28 @@ with tab_social:
                             )
 
                         st.markdown("**Daily trend**")
-                        chart_df = df.set_index("date")[["viewsCount", "engagementCount", "followersCount"]]
-                        st.line_chart(chart_df, height=220)
+                        trend_cols = [c for c in ["viewsCount", "engagementCount", "followersCount"] if c in df.columns]
+                        if trend_cols:
+                            st.line_chart(df.set_index("date")[trend_cols], height=220)
 
                         st.markdown("**Day-by-day**")
-                        display_df = df[[
-                            "date", "followersCount", "followersGainedCount",
-                            "viewsCount", "engagementCount", "engagementRatePerView",
-                            "likesCount", "receivedCommentsCount", "sharesCount",
-                            "publishedVideoCount",
-                        ]].copy()
-                        display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
-                        display_df.columns = [
-                            "Date", "Followers", "Follower Δ",
-                            "Views", "Engagements", "Eng Rate %",
-                            "Likes", "Comments", "Shares", "Posts",
+                        column_map = [
+                            ("date", "Date"),
+                            ("followersCount", "Followers"),
+                            ("followersGainedCount", "Follower Δ"),
+                            ("viewsCount", "Views"),
+                            ("engagementCount", "Engagements"),
+                            ("engagementRatePerView", "Eng Rate %"),
+                            ("likesCount", "Likes"),
+                            ("receivedCommentsCount", "Comments"),
+                            ("sharesCount", "Shares"),
+                            ("publishedVideoCount", "Posts"),
                         ]
+                        available = [(src, label) for src, label in column_map if src in df.columns]
+                        display_df = df[[src for src, _ in available]].copy()
+                        if "date" in display_df.columns:
+                            display_df["date"] = pd.to_datetime(display_df["date"]).dt.strftime("%Y-%m-%d")
+                        display_df.columns = [label for _, label in available]
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         st.markdown("---")
