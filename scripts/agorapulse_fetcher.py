@@ -59,8 +59,8 @@ def _get_api_key():
     )
 
 
-def _to_unix_ms(value):
-    """Convert YYYY-MM-DD (or datetime) to Unix milliseconds Agorapulse expects."""
+def _to_unix_seconds(value):
+    """Convert YYYY-MM-DD (or datetime) to Unix seconds Agorapulse expects."""
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -71,7 +71,7 @@ def _to_unix_ms(value):
             dt = datetime.strptime(s.split("T")[0], "%Y-%m-%d")
         else:
             dt = datetime.strptime(s, "%Y-%m-%d")
-    return int(dt.timestamp() * 1000)
+    return int(dt.timestamp())
 
 
 def _api_request(endpoint, params=None):
@@ -96,7 +96,7 @@ def get_audience_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/audience"
     )
-    return _api_request(endpoint, {"since": _to_unix_ms(since), "until": _to_unix_ms(until)})
+    return _api_request(endpoint, {"since": _to_unix_seconds(since), "until": _to_unix_seconds(until)})
 
 
 def get_content_report(profile_uid, since, until):
@@ -105,7 +105,7 @@ def get_content_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/content"
     )
-    return _api_request(endpoint, {"since": _to_unix_ms(since), "until": _to_unix_ms(until)})
+    return _api_request(endpoint, {"since": _to_unix_seconds(since), "until": _to_unix_seconds(until)})
 
 
 def get_community_report(profile_uid, since, until):
@@ -114,7 +114,7 @@ def get_community_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/community-management"
     )
-    return _api_request(endpoint, {"since": _to_unix_ms(since), "until": _to_unix_ms(until)})
+    return _api_request(endpoint, {"since": _to_unix_seconds(since), "until": _to_unix_seconds(until)})
 
 
 def get_all_profiles_summary(since=None, until=None):
