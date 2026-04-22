@@ -223,6 +223,12 @@ with tab_social:
                 rows = []
                 error_details = []
                 for profile in data:
+                    if profile.get("unsupported"):
+                        rows.append({
+                            "Platform": profile["platform"],
+                            "Status": "Not supported by Agorapulse API",
+                        })
+                        continue
                     if "error" in profile:
                         rows.append({
                             "Platform": profile["platform"],

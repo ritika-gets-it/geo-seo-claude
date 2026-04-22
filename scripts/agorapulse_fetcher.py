@@ -59,6 +59,18 @@ def _get_api_key():
     )
 
 
+def _to_iso8601(value):
+    """Convert YYYY-MM-DD (or datetime) to ISO 8601 UTC Agorapulse expects."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    s = str(value)
+    if "T" in s:
+        return s
+    return f"{s}T00:00:00Z"
+
+
 def _api_request(endpoint, params=None):
     """Make an authenticated API request."""
     api_key = _get_api_key()
@@ -79,7 +91,7 @@ def get_audience_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/audience"
     )
-    return _api_request(endpoint, {"since": since, "until": until})
+    return _api_request(endpoint, {"since": _to_iso8601(since), "until": _to_iso8601(until)})
 
 
 def get_content_report(profile_uid, since, until):
@@ -88,7 +100,7 @@ def get_content_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/content"
     )
-    return _api_request(endpoint, {"since": since, "until": until})
+    return _api_request(endpoint, {"since": _to_iso8601(since), "until": _to_iso8601(until)})
 
 
 def get_community_report(profile_uid, since, until):
@@ -97,7 +109,7 @@ def get_community_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/community-management"
     )
-    return _api_request(endpoint, {"since": since, "until": until})
+    return _api_request(endpoint, {"since": _to_iso8601(since), "until": _to_iso8601(until)})
 
 
 def get_all_profiles_summary(since=None, until=None):
@@ -122,13 +134,19 @@ def get_all_profiles_summary(since=None, until=None):
                 "content": content,
             })
         except Exception as e:
-            results.append({
+            msg = str(e)
+            entry = {
                 "key": key,
                 "profile_uid": profile["uid"],
                 "name": profile["name"],
                 "platform": profile["platform"],
-                "error": str(e),
-            })
+            }
+            if '"subCode":1104' in msg or "not handled by open APIs" in msg:
+                entry["unsupported"] = True
+                entry["note"] = "Not exposed by Agorapulse open API"
+            else:
+                entry["error"] = msg
+            results.append(entry)
 
     return results
 
