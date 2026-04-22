@@ -59,16 +59,19 @@ def _get_api_key():
     )
 
 
-def _to_iso8601(value):
-    """Convert YYYY-MM-DD (or datetime) to ISO 8601 UTC Agorapulse expects."""
+def _to_unix_ms(value):
+    """Convert YYYY-MM-DD (or datetime) to Unix milliseconds Agorapulse expects."""
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
-    s = str(value)
-    if "T" in s:
-        return s
-    return f"{s}T00:00:00Z"
+        dt = value
+    else:
+        s = str(value)
+        if "T" in s:
+            dt = datetime.strptime(s.split("T")[0], "%Y-%m-%d")
+        else:
+            dt = datetime.strptime(s, "%Y-%m-%d")
+    return int(dt.timestamp() * 1000)
 
 
 def _api_request(endpoint, params=None):
@@ -79,8 +82,10 @@ def _api_request(endpoint, params=None):
     resp = requests.get(url, headers=headers, params=params, timeout=30)
     if not resp.ok:
         body = resp.text[:500] if resp.text else "(empty body)"
+        sent_params = params if params else {}
         raise requests.HTTPError(
-            f"{resp.status_code} {resp.reason} for {url} — body: {body}"
+            f"{resp.status_code} {resp.reason} for {url} "
+            f"(params sent: {sent_params}) — body: {body}"
         )
     return resp.json()
 
@@ -91,7 +96,7 @@ def get_audience_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/audience"
     )
-    return _api_request(endpoint, {"since": _to_iso8601(since), "until": _to_iso8601(until)})
+    return _api_request(endpoint, {"since": _to_unix_ms(since), "until": _to_unix_ms(until)})
 
 
 def get_content_report(profile_uid, since, until):
@@ -100,7 +105,7 @@ def get_content_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/content"
     )
-    return _api_request(endpoint, {"since": _to_iso8601(since), "until": _to_iso8601(until)})
+    return _api_request(endpoint, {"since": _to_unix_ms(since), "until": _to_unix_ms(until)})
 
 
 def get_community_report(profile_uid, since, until):
@@ -109,7 +114,7 @@ def get_community_report(profile_uid, since, until):
         f"/v1.0/report/organizations/{ORG_ID}/workspaces/{WORKSPACE_ID}"
         f"/profiles/{profile_uid}/insights/community-management"
     )
-    return _api_request(endpoint, {"since": _to_iso8601(since), "until": _to_iso8601(until)})
+    return _api_request(endpoint, {"since": _to_unix_ms(since), "until": _to_unix_ms(until)})
 
 
 def get_all_profiles_summary(since=None, until=None):
